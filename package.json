@@ -1,0 +1,23 @@
+{
+  "name": "ar-wrapper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/verses-xyz/ar-wrapper.git"
+  },
+  "author": "Jacky Zhao",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/verses-xyz/ar-wrapper/issues"
+  },
+  "homepage": "https://github.com/verses-xyz/ar-wrapper#readme",
+  "dependencies": {
+    "arweave": "^1.10.23",
+    "lru_map": "^0.4.1"
+  }
+}
