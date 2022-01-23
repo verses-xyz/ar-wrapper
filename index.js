@@ -92,11 +92,11 @@ class ArweaveClient {
   // Construct a new client given the address of the admin account,
   // keys to the wallet, and a set of options for connecting to an Arweave network.
   // Options are identical to the ones supported by the official `arweave-js` library
-  constructor(adminAddress, key, cache_size = 500, options = DEFAULT_OPTIONS) {
-    this.#key = key
+  constructor(adminAddress, keyFile, cacheSize = 500, options = DEFAULT_OPTIONS) {
+    this.#key = keyFile
     this.adminAddr = adminAddress
     this.client = ArweaveLib.init(options)
-    this.cache = new LRUMap(500)
+    this.cache = new LRUMap(cacheSize)
   }
 
   // Internal function for adding single document to permaweb
@@ -124,13 +124,6 @@ class ArweaveClient {
     return doc
   }
 
-  // Add a new document
-  async addDocument(name, content, tags) {
-    // create document + transaction
-    const doc = new Document(this, name, content, tags)
-    return this.#insert(doc)
-  }
-
   // Internal function to see if given document is cached.
   // Optionally define desired version to match against.
   isCached(documentName, desiredVersion) {
@@ -142,6 +135,13 @@ class ArweaveClient {
     const cached = this.cache.get(documentName)
     const versionMatch = desiredVersion ? cached.version === desiredVersion : true
     return cached.synced && versionMatch
+  }
+
+  // Add a new document
+  async addDocument(name, content, tags) {
+    // create document + transaction
+    const doc = new Document(this, name, content, tags)
+    return this.#insert(doc)
   }
 
   // Update existing document object and send to chain
@@ -192,6 +192,7 @@ class ArweaveClient {
       })
     }
 
+    // TODO: handle pagination/cursor here
     return {
       query: `
       query {
@@ -249,7 +250,7 @@ class ArweaveClient {
     }
 
     // fetch document, update cache
-    const doc = await this.getDocumentByTxId(txId)
+    const doc = await this.getDocumentByTxId(txId, maxRetries)
     this.cache.set(doc.name, doc)
     return doc
   }
