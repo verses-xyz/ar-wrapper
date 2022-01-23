@@ -57,6 +57,6 @@ declare module "ar-wrapper" {
     updateDocument(document: Document): Promise<Document>
     pollForConfirmation(txId: string, maxRetries?: number): Promise<BlockStatusI>
     getDocumentByName(name: string, version?: number, maxRetries?: number, verifiedOnly?: boolean): Promise<Document>
-    getDocumentByName(txId: string, maxRetries?: number, verifiedOnly?: boolean): Promise<Document>
+    getDocumentByTxId(txId: string, maxRetries?: number, verifiedOnly?: boolean): Promise<Document>
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "ar-wrapper",
   "version": "1.0.0",
-  "description": "",
+  "description": "Thin wrapper around arweave-js for versioned permaweb document management",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/verses-xyz/ar-wrapper#readme",
   "dependencies": {
-    "arweave": "^1.10.23",
+    "arweave": "^1.10.18",
     "cross-fetch": "^3.1.5",
     "exponential-backoff": "^3.1.0",
     "lru_map": "^0.4.1"

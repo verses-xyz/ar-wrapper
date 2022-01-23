@@ -67,9 +67,8 @@ class Document {
 
   // Helper function to bump timestamp of document
   bumpTimestamp(dateMs) {
-    const options = { year: 'numeric', month: 'long', day: 'numeric' }
     const time = new Date(dateMs * 1000)
-    this.timestamp = time.toLocaleDateString('en-US', options)
+    this.timestamp = time.toString()
   }
 }
 
@@ -91,9 +90,10 @@ class ArweaveClient {
 
   // Construct a new client given the address of the admin account,
   // keys to the wallet, and a set of options for connecting to an Arweave network.
-  // Options are identical to the ones supported by the official `arweave-js` library
+  // `cacheSize` can be set to 0 to disable caching (not recommended).
+  // Options are identical to the ones supported by the official `arweave-js` library.
   constructor(adminAddress, keyFile, cacheSize = 500, options = DEFAULT_OPTIONS) {
-    this.#key = keyFile
+    this.#key = JSON.parse(keyFile)
     this.adminAddr = adminAddress
     this.client = ArweaveLib.init(options)
     this.cache = new LRUMap(cacheSize)
@@ -120,6 +120,7 @@ class ArweaveClient {
 
     // success, update doc data, add to cache
     doc.txID = tx.id
+    doc.posted = true
     this.cache.set(doc.name, doc)
     return doc
   }
@@ -133,8 +134,8 @@ class ArweaveClient {
     }
 
     const cached = this.cache.get(documentName)
-    const versionMatch = desiredVersion ? cached.version === desiredVersion : true
-    return cached.synced && versionMatch
+    const versionMatch = desiredVersion !== undefined ? cached.version === desiredVersion : true
+    return cached.posted && versionMatch
   }
 
   // Add a new document
@@ -179,17 +180,17 @@ class ArweaveClient {
   // Both names and versions are arrays. Use `verifiedOnly = false` to include
   // all submitted TXs (including ones from non-admin wallet accounts)
   #queryBuilder(names, versions, verifiedOnly = true) {
-    const tags = [{
-      name: NAME,
-      values: names,
-    }]
+    const tags = [`{
+      name: "${NAME}",
+      values: ${JSON.stringify(names)},
+    }`]
 
     // versions is an optional field
     if (versions.length > 0) {
-      tags.push({
-        name: VERSION,
-        values: versions,
-      })
+      tags.push(`{
+        name: "${VERSION}",
+        values: ${JSON.stringify(versions.map(n => n.toString()))},
+      }`)
     }
 
     // TODO: handle pagination/cursor here
@@ -197,7 +198,7 @@ class ArweaveClient {
       query: `
       query {
         transactions(
-          tags: ${JSON.stringify(tags)},
+          tags: [${tags.join(",")}],
           ${verifiedOnly ? `owners: ["${this.adminAddr}"]` : ""}
         ) {
           edges {
@@ -218,6 +219,7 @@ class ArweaveClient {
     }
   }
 
+  // Return a document object via lookup by name
   async getDocumentByName(name, version, maxRetries = 10, verifiedOnly = true) {
     // check if doc is in cache and entry is up to date (and correct version)
     if (this.isCached(name, version)) {
@@ -226,7 +228,7 @@ class ArweaveClient {
 
     // otherwise, fetch latest to cache
     // build query to lookup by name (and optionally version) and send request to arweave graphql server
-    const query = this.#queryBuilder([name], version ? [version] : [], verifiedOnly)
+    const query = this.#queryBuilder([name], version === undefined ? [] : [version], verifiedOnly)
     const req = await fetch('https://arweave.net/graphql', {
       method: 'POST',
       headers: {
@@ -238,7 +240,7 @@ class ArweaveClient {
     const json = await req.json()
 
     // safe to get first item as we specify specific tags in the query building stage
-    const txId = version ?
+    const txId = version !== undefined ?
       json.data.transactions.edges[0]?.node.id :
       json.data.transactions.edges.sort((a, b) => {
         // we reverse sort edges if version is not defined to get latest version
@@ -255,25 +257,26 @@ class ArweaveClient {
     return doc
   }
 
+  // Return a document object via lookup by transaction ID. Not cached.
   async getDocumentByTxId(txId, maxRetries = 10, verifiedOnly = true) {
     // ensure block with tx is confirmed (do not assume it is in cache)
     const txStatus = await this.pollForConfirmation(txId, maxRetries)
 
     // fetch tx metadata
     const transactionMetadata = await this.client.transactions.get(txId)
-    if (verifiedOnly && transactionMetadata.owner !== this.adminAddr) {
+    if (verifiedOnly && transactionMetadata.owner !== this.#key.n) {
       return Promise.reject(`Document is not verified. Owner address mismatched! Got: ${transactionMetadata.owner}`)
     }
 
     // tag parsing
-    const tags = transactionMetadata.get('tags').reduce((accum, tag) => {
+    const metaTags = transactionMetadata.get('tags').reduce((accum, tag) => {
       let key = tag.get('name', {decode: true, string: true})
       accum[key] = tag.get('value', {decode: true, string: true})
       return accum
     }, {})
 
     // assert that these are actually documents
-    if (!(tags.hasOwnProperty(NAME) && tags.hasOwnProperty(VERSION))) {
+    if (!(metaTags.hasOwnProperty(NAME) && metaTags.hasOwnProperty(VERSION))) {
       return Promise.reject(`Transaction ${txId} is not a document. Make sure your transaction ID is correct`)
     }
 
@@ -286,12 +289,24 @@ class ArweaveClient {
         string: true,
       }),
     ])
-    const docData = JSON.parse(dataString)
+    const {
+      name,
+      content,
+      version,
+      tags
+    } = JSON.parse(dataString)
 
     // transform into document and return
-    const doc = new Document(this, docData, tags)
+    const doc = new Document(this, name, content, tags, version)
+    doc.posted = true
+    doc.txID = txId
     doc.bumpTimestamp(blockMeta.timestamp)
     this.cache.set(doc.name, doc)
     return doc
   }
+}
+
+module.exports = {
+  ArweaveClient,
+  Document
 }
