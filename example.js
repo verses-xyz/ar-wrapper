@@ -1,4 +1,4 @@
-const { ArweaveClient } = require('./index')
+const { ArweaveClient } = require('ar-wrapper')
 
 // Address of your admin wallet with funds
 const address = "..."
