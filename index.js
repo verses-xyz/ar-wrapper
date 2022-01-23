@@ -113,6 +113,11 @@ class ArweaveClient {
     await this.client.transactions.sign(tx, this.#key)
     const txResult = await this.client.transactions.post(tx)
 
+    // check if something went wrong
+    if (txResult.status !== 200) {
+      return Promise.reject(txResult)
+    }
+
     // success, update doc data, add to cache
     doc.txID = tx.id
     this.cache.set(doc.name, doc)
@@ -200,6 +205,10 @@ class ArweaveClient {
               owner {
                 address
               }
+              tags {
+                name
+                value
+              }
             }
           }
         }
@@ -228,7 +237,13 @@ class ArweaveClient {
     const json = await req.json()
 
     // safe to get first item as we specify specific tags in the query building stage
-    const txId = json.data.transactions.edges[0]?.node.id
+    const txId = version ?
+      json.data.transactions.edges[0]?.node.id :
+      json.data.transactions.edges.sort((a, b) => {
+        // we reverse sort edges if version is not defined to get latest version
+        const getVersion = (edge) => edge.node.tags.find(tag => tag.name === VERSION).value || 0
+        return getVersion(b) - getVersion(a)
+      })[0]?.node.id
     if (!txId) {
       return Promise.reject(`No transaction with name ${name} found`)
     }
