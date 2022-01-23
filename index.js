@@ -62,8 +62,7 @@ class Document {
     this.content = content
     this.version += 1
     this.posted = false
-
-    await this.client.updateDocument(this).then(() => this.posted = true)
+    await this.client.updateDocument(this)
   }
 
   // Helper function to bump timestamp of document
@@ -100,10 +99,8 @@ class ArweaveClient {
     this.cache = new LRUMap(500)
   }
 
-  // Add a new document
-  async addDocument(name, content, tags, version) {
-    // create document + transaction
-    const doc = new Document(this, name, content, tags, version)
+  // Internal function for adding single document to permaweb
+  async #insert(doc) {
     const tx = await this.client.createTransaction({
       data: JSON.stringify(doc.data())
     }, this.#key)
@@ -119,11 +116,14 @@ class ArweaveClient {
     // success, update doc data, add to cache
     doc.txID = tx.id
     this.cache.set(doc.name, doc)
+    return doc
+  }
 
-    return {
-      ...txResult,
-      id: tx.id,
-    }
+  // Add a new document
+  async addDocument(name, content, tags) {
+    // create document + transaction
+    const doc = new Document(this, name, content, tags)
+    return this.#insert(doc)
   }
 
   // Internal function to see if given document is cached.
@@ -139,15 +139,17 @@ class ArweaveClient {
     return cached.synced && versionMatch
   }
 
-  // TODO: write
+  // Update existing document object and send to chain
   async updateDocument(document) {
-    // check if doc is in cache and not dirty
-    if (this.isCached(name)) {
-      return Promise.resolve()
+    // check if cache has latest version of document
+    if (this.isCached(document.name, document.version)) {
+      return document
     }
 
-    // fetch latest
-
+    // otherwise, update latest
+    await this.#insert(document)
+    this.cache.set(document.name, document)
+    return document
   }
 
   // Wait until block is confirmed as mined using exponential retry-backoff
