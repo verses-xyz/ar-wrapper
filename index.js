@@ -11,37 +11,62 @@ const DEFAULT_OPTIONS = {
   logging: false,
 }
 
-// A single managed document
+// A single managed document containing arbitrary content.
+// Should not be constructed manually, do this through the `ArweaveClient`
 class Document {
-  data
+  // Transaction ID of Document
   txID
+  // Parent Arweave Client
   client
+  // Whether the document has been posted to chain to be mined
   posted
-  tags
+  // Timestamp of block being published
   timestamp
 
-  // Creates a new document. Not synced by default!
-  constructor(parentClient, data, tags) {
+  // Name of document. Assumed to be a unique identifier.
+  // To avoid collisions, you can namespace this by prefixing it with a string of your choice.
+  name
+  // Arbitrary content. Can be JSON.
+  content
+  // Document version. Uses an integer system, usually initialized to 0.
+  version
+  // Object containing arbitrary user-defined metadata tags
+  tags
+
+  // Initialize a new document. Not synced by default!
+  constructor(parentClient, name, content, tags, version = 0) {
     this.client = parentClient
-    this.data = data
     this.txID = undefined
     this.posted = false
-    this.tags = tags
     this.timestamp = undefined
+
+    this.name = name
+    this.content = content
+    this.version = version
+    this.tags = tags
   }
 
-  // Update document with a partial version of its fields.
-  // Automatically bumps version field unless explicitly defined.
-  async update(partialDocument) {
-    this.posted = false
-    this.data = {
-      ...this.data,
-      version: this.data.version + 1,
-      ...partialDocument,
+  // Return an object representation of data in this document that is stored on chain.
+  data() {
+    return {
+      name: this.name,
+      content: this.content,
+      version: this.version,
+      tags: this.tags,
     }
+  }
+
+  // Update document content. If you want to update any other fields, make a new
+  // document.
+  async update(content) {
+    this.content = content
+    this.version += 1
+    this.posted = false
+
     await this.client.updateDocument(this).then(() => this.posted = true)
   }
 
+  // Helper function to bump timestamp of document
   bumpTimestamp(dateMs) {
     const options = { year: 'numeric', month: 'long', day: 'numeric' }
     const time = new Date(dateMs * 1000)
@@ -56,9 +81,13 @@ const NAME = "DOC_NAME"
 // Thin wrapper client around Arweave for versioned document/data management.
 // Relies on an 'admin' wallet for fronting transaction + gas costs for users.
 class ArweaveClient {
+  // Key object for associated admin wallet
   #key
+  // Public address for admin wallet
   adminAddr
+  // Underlying arweave-js client
   client
+  // Simple cache of Documents for optimistic block confirmations
   cache
 
   // Construct a new client given the address of the admin account,
@@ -71,17 +100,17 @@ class ArweaveClient {
     this.cache = new LRUMap(500)
   }
 
-  // Function to add a new document
-  async addDocument(content, version, name, meta) {
+  // Add a new document
+  async addDocument(name, content, tags, version) {
     // create document + transaction
-    const doc = new Document(this, content, version, name, meta)
+    const doc = new Document(this, name, content, tags, version)
     const tx = await this.client.createTransaction({
-      data: JSON.stringify(doc.data)
+      data: JSON.stringify(doc.data())
     }, this.#key)
 
     // tag with metadata (actual meta is stringified in body)
-    tx.addTag(VERSION, doc.data.version)
-    tx.addTag(NAME, doc.data.name)
+    tx.addTag(VERSION, doc.version)
+    tx.addTag(NAME, doc.name)
 
     // sign + send tx
     await this.client.transactions.sign(tx, this.#key)
@@ -89,7 +118,7 @@ class ArweaveClient {
 
     // success, update doc data, add to cache
     doc.txID = tx.id
-    this.cache.set(doc.data.name, doc)
+    this.cache.set(doc.name, doc)
 
     return {
       ...txResult,
@@ -110,7 +139,7 @@ class ArweaveClient {
     return cached.synced && versionMatch
   }
 
-  // take document with changes and update
+  // TODO: write
   async updateDocument(document) {
     // check if doc is in cache and not dirty
     if (this.isCached(name)) {
@@ -130,7 +159,7 @@ class ArweaveClient {
     return await backOff(async () => {
       const txStatus = await this.client.transactions.getStatus(txId)
       if (txStatus.status === 200) {
-        return Promise.resolve(txStatus)
+        return txStatus
       } else {
         return Promise.reject(txStatus.status)
       }
@@ -149,7 +178,7 @@ class ArweaveClient {
     }]
 
     // versions is an optional field
-    if (versions && versions.length > 0) {
+    if (versions.length > 0) {
       tags.push({
         name: VERSION,
         values: versions,
@@ -177,23 +206,48 @@ class ArweaveClient {
     }
   }
 
-  async getDocumentByName(name, version) {
+  async getDocumentByName(name, version, maxRetries = 10, verifiedOnly = true) {
     // check if doc is in cache and entry is up to date (and correct version)
     if (this.isCached(name, version)) {
       return this.cache.get(name)
     }
 
-    // otherwise, fetch latest to cache and overwrite
+    // otherwise, fetch latest to cache
+    // build query to lookup by name (and optionally version) and send request to arweave graphql server
+    const query = this.#queryBuilder([name], version ? [version] : [], verifiedOnly)
+    const req = await fetch('https://arweave.net/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(query),
+    })
+    const json = await req.json()
 
-    // return
-    return this.cache.get(name)
+    // safe to get first item as we specify specific tags in the query building stage
+    const txId = json.data.transactions.edges[0]?.node.id
+    if (!txId) {
+      return Promise.reject(`No transaction with name ${name} found`)
+    }
+
+    // fetch document, update cache
+    const doc = await this.getDocumentByTxId(txId)
+    this.cache.set(doc.name, doc)
+    return doc
   }
 
-  async getDocumentByTxId(txId, maxRetries = 10) {
+  async getDocumentByTxId(txId, maxRetries = 10, verifiedOnly = true) {
+    // ensure block with tx is confirmed (do not assume it is in cache)
     const txStatus = await this.pollForConfirmation(txId, maxRetries)
 
     // fetch tx metadata
     const transactionMetadata = await this.client.transactions.get(txId)
+    if (verifiedOnly && transactionMetadata.owner !== this.adminAddr) {
+      return Promise.reject(`Document is not verified. Owner address mismatched! Got: ${transactionMetadata.owner}`)
+    }
+
+    // tag parsing
     const tags = transactionMetadata.get('tags').reduce((accum, tag) => {
       let key = tag.get('name', {decode: true, string: true})
       accum[key] = tag.get('value', {decode: true, string: true})
@@ -202,20 +256,24 @@ class ArweaveClient {
 
     // assert that these are actually documents
     if (!(tags.hasOwnProperty(NAME) && tags.hasOwnProperty(VERSION))) {
-      return Promise.reject("TX is not a document. Make sure your transaction ID is correct")
+      return Promise.reject(`Transaction ${txId} is not a document. Make sure your transaction ID is correct`)
     }
 
-    // fetch associated block + block metadata + data
+    // concurrently fetch associated block + block metadata + data
     const blockId = txStatus.confirmed.block_indep_hash
-    const [blockMeta, dataString] = await Promise.all([this.client.blocks.get(blockId), this.client.transactions.getData(txId, {
-      decode: true,
-      string: true,
-    })])
+    const [blockMeta, dataString] = await Promise.all([
+      this.client.blocks.get(blockId),
+      this.client.transactions.getData(txId, {
+        decode: true,
+        string: true,
+      }),
+    ])
     const docData = JSON.parse(dataString)
 
-    // transform into document
+    // transform into document and return
     const doc = new Document(this, docData, tags)
     doc.bumpTimestamp(blockMeta.timestamp)
+    this.cache.set(doc.name, doc)
     return doc
   }
 }
