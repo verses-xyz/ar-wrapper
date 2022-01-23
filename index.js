@@ -17,18 +17,17 @@ class Document {
   txID
   client
   posted
+  tags
+  timestamp
 
   // Creates a new document. Not synced by default!
-  constructor(parentClient, content, version, name, meta) {
+  constructor(parentClient, data, tags) {
     this.client = parentClient
-    this.data = {
-      content,
-      version,
-      name,
-      meta,
-    }
+    this.data = data
     this.txID = undefined
     this.posted = false
+    this.tags = tags
+    this.timestamp = undefined
   }
 
   // Update document with a partial version of its fields.
@@ -43,18 +42,10 @@ class Document {
     await this.client.updateDocument(this).then(() => this.posted = true)
   }
 
-  // Wait until block is confirmed as mined using exponential retry-backoff
-  async pollForConfirmation(maxRetries = 10) {
-    if (!(this.posted && this.txID)) {
-      return Promise.reject("Document has not been posted! Use .update() first")
-    }
-
-    return await backOff(async () => {
-      const txStatus = await this.client.transactions.getStatus(this.txID)
-      return txStatus.status !== 200 ? Promise.reject(txStatus.status) : Promise.resolve()
-    }, {
-      numOfAttempts: maxRetries
-    })
+  bumpTimestamp(dateMs) {
+    const options = { year: 'numeric', month: 'long', day: 'numeric' }
+    const time = new Date(dateMs * 1000)
+    this.timestamp = time.toLocaleDateString('en-US', options)
   }
 }
 
@@ -130,6 +121,24 @@ class ArweaveClient {
 
   }
 
+  // Wait until block is confirmed as mined using exponential retry-backoff
+  async pollForConfirmation(txId, maxRetries = 10) {
+    if (!txId) {
+      return Promise.reject("Document has not been posted! Use .update() first")
+    }
+
+    return await backOff(async () => {
+      const txStatus = await this.client.transactions.getStatus(txId)
+      if (txStatus.status === 200) {
+        return Promise.resolve(txStatus)
+      } else {
+        return Promise.reject(txStatus.status)
+      }
+    }, {
+      numOfAttempts: maxRetries
+    })
+  }
+
   // Internal fn for building GraphQL queries for fetching data.
   // Both names and versions are arrays. Use `verifiedOnly = false` to include
   // all submitted TXs (including ones from non-admin wallet accounts)
@@ -160,10 +169,6 @@ class ArweaveClient {
               owner {
                 address
               }
-              tags {
-                name
-                value
-              }
             }
           }
         }
@@ -184,7 +189,33 @@ class ArweaveClient {
     return this.cache.get(name)
   }
 
-  async getDocumentByTxId(txId) {
-    const txStatus = await this.client.transactions.getStatus(txId);
+  async getDocumentByTxId(txId, maxRetries = 10) {
+    const txStatus = await this.pollForConfirmation(txId, maxRetries)
+
+    // fetch tx metadata
+    const transactionMetadata = await this.client.transactions.get(txId)
+    const tags = transactionMetadata.get('tags').reduce((accum, tag) => {
+      let key = tag.get('name', {decode: true, string: true})
+      accum[key] = tag.get('value', {decode: true, string: true})
+      return accum
+    }, {})
+
+    // assert that these are actually documents
+    if (!(tags.hasOwnProperty(NAME) && tags.hasOwnProperty(VERSION))) {
+      return Promise.reject("TX is not a document. Make sure your transaction ID is correct")
+    }
+
+    // fetch associated block + block metadata + data
+    const blockId = txStatus.confirmed.block_indep_hash
+    const [blockMeta, dataString] = await Promise.all([this.client.blocks.get(blockId), this.client.transactions.getData(txId, {
+      decode: true,
+      string: true,
+    })])
+    const docData = JSON.parse(dataString)
+
+    // transform into document
+    const doc = new Document(this, docData, tags)
+    doc.bumpTimestamp(blockMeta.timestamp)
+    return doc
   }
 }
