@@ -11,6 +11,12 @@ declare module "ar-wrapper" {
     }
   }
 
+  interface FetchSettingsI {
+    maxRetries: number
+    verifiedOnly: boolean
+    maxResults: number
+  }
+
   export interface BlockDocument {
     name: string
     content: string
@@ -26,16 +32,18 @@ declare module "ar-wrapper" {
     logging: boolean
   }
 
-  export const DEFAULT_OPTIONS: OptionsI
+  interface Serializable {
+    toString: (any) => string
+  }
 
-  export class Document {
+  export class Document<T = string> {
     txID: string
     client: ArweaveClient
     posted: boolean
     timestamp: string
 
     name: string
-    content: any
+    content: T
     version: number
     tags: Record<string, string>
 
@@ -56,7 +64,9 @@ declare module "ar-wrapper" {
     addDocument(name: string, content: any, tags: Record<string, string>): Promise<Document>
     updateDocument(document: Document): Promise<Document>
     pollForConfirmation(txId: string, maxRetries?: number): Promise<BlockStatusI>
-    getDocumentByName(name: string, version?: number, maxRetries?: number, verifiedOnly?: boolean): Promise<Document>
-    getDocumentByTxId(txId: string, maxRetries?: number, verifiedOnly?: boolean): Promise<Document>
+    executeQuery(names: string[], versions: number[], userTags: Record<string, string>, userOptions?: Partial<FetchSettingsI>)
+    getDocumentsByName(name: string, version?: number, tags?: Record<string, string>, options?: Partial<FetchSettingsI>): Promise<Document[]>
+    getDocumentsByTags(tags: Record<string, string>, options?: Partial<FetchSettingsI>): Promise<Document[]>
+    getDocumentByTxId(txId: string, userOptions?: Partial<FetchSettingsI>): Promise<Document>
   }
 }
