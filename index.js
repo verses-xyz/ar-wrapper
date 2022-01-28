@@ -277,13 +277,11 @@ class ArweaveClient {
     }
 
     // safe to get first item as we specify specific tags in the query building stage
-    const txIds = versions.length === 0 ?
-      resultEdges.map(e => e.node.id) :
-      resultEdges.sort((a, b) => {
-        // we reverse sort edges if version is not defined to get latest version
-        const getVersion = (edge) => edge.node.tags.find(tag => tag.name === VERSION).value || 0
-        return getVersion(b) - getVersion(a)
-      }).map(e => e.node.id)
+    const txIds = resultEdges.sort((a, b) => {
+      // we reverse sort edges if version is not defined to get latest version
+      const getVersion = (edge) => edge.node.tags.find(tag => tag.name === VERSION).value || 0
+      return getVersion(b) - getVersion(a)
+    }).map(e => e.node.id)
 
     // fetch document, update cache
     const promises = txIds.map(txId => this.getDocumentByTxId(txId, options))
