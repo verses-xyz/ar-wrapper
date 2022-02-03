@@ -68,7 +68,7 @@ class Document {
     this.content = content
     this.version += 1
     this.posted = false
-    await this.client.updateDocument(this)
+    return await this.client.updateDocument(this)
   }
 
   // Helper function to bump timestamp of document
@@ -165,8 +165,7 @@ class ArweaveClient {
     }
 
     // otherwise, update latest
-    await this.#insert(document)
-    return document
+    return await this.#insert(document)
   }
 
   // Wait until block is confirmed as mined using exponential retry-backoff
