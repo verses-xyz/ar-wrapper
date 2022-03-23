@@ -100,7 +100,11 @@ class ArweaveClient {
   // `cacheSize` can be set to 0 to disable caching (not recommended).
   // Options are identical to the ones supported by the official `arweave-js` library.
   constructor(adminAddress, keyFile, cacheSize = 500, options = DEFAULT_ARWEAVE_OPTIONS) {
-    this.#key = JSON.parse(keyFile)
+    if (keyFile === undefined) {
+      console.log("WARN: keyFile is undefined. Client is now in READ-ONLY mode. If this isn't intentional, make sure you are passing in a key")
+    } else {
+      this.#key = JSON.parse(keyFile)
+    }
     this.adminAddr = adminAddress
     this.client = ArweaveLib.init(options)
     this.cache = new LRUMap(cacheSize)
@@ -108,6 +112,10 @@ class ArweaveClient {
 
   // Internal function for adding single document to permaweb
   async #insert(doc) {
+    if (!this.#key) {
+      throw "Can't call .insert() in READ-ONLY mode!"
+    }
+
     const tx = await this.client.createTransaction({
       data: JSON.stringify(doc.data())
     }, this.#key)
@@ -294,7 +302,7 @@ class ArweaveClient {
 
   // Return a list of document objects by their tags
   async getDocumentsByTags(tags, options = DEFAULT_FETCH_OPTIONS) {
-    return this.executeQuery([] ,[], tags, options)
+    return this.executeQuery([], [], tags, options)
   }
 
   // Return a document object via lookup by name
@@ -318,14 +326,15 @@ class ArweaveClient {
 
     // fetch tx metadata
     const transactionMetadata = await this.client.transactions.get(txId)
-    if (options.verifiedOnly && transactionMetadata.owner !== this.#key.n) {
+    const readOnlyMode = !this.#key
+    if ((options.verifiedOnly && !readOnlyMode) && transactionMetadata.owner !== this.#key.n) {
       return Promise.reject(`Document is not verified. Owner address mismatched! Got: ${transactionMetadata.owner}`)
     }
 
     // tag parsing
     const metaTags = transactionMetadata.get('tags').reduce((accum, tag) => {
-      let key = tag.get('name', {decode: true, string: true})
-      accum[key] = tag.get('value', {decode: true, string: true})
+      let key = tag.get('name', { decode: true, string: true })
+      accum[key] = tag.get('value', { decode: true, string: true })
       return accum
     }, {})
 
