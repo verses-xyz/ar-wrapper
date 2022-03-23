@@ -1,6 +1,6 @@
 {
   "name": "ar-wrapper",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Thin wrapper around arweave-js for versioned permaweb document management",
   "main": "index.js",
   "scripts": {},
