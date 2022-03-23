@@ -176,7 +176,7 @@ class ArweaveClient {
   #queryBuilder(names, versions, userTags, verifiedOnly = true, cursor = undefined, compat = false) {
     // parse use defined tags
     const tags = Object.entries(userTags).map(([k, v]) => `{
-      name: "${META}_${k}",
+      name: "${compat ? k : `${META}_${k}`}",
       values: ["${v}"]
     }`)
 
