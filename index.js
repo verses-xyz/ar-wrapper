@@ -15,15 +15,14 @@ const DEFAULT_FETCH_OPTIONS = {
   maxRetries: 10,
   verifiedOnly: true,
   maxResults: 25,
+  compatabilityMode: false,
 }
-
 
 class Document {
   txID
   client
   posted
   timestamp
-
 
   name
   content
@@ -174,7 +173,7 @@ class ArweaveClient {
   // Internal fn for building GraphQL queries for fetching data.
   // Both names and versions are arrays. Use `verifiedOnly = false` to include
   // all submitted TXs (including ones from non-admin wallet accounts)
-  #queryBuilder(names, versions, userTags, verifiedOnly = true, cursor = undefined) {
+  #queryBuilder(names, versions, userTags, verifiedOnly = true, cursor = undefined, compat = false) {
     // parse use defined tags
     const tags = Object.entries(userTags).map(([k, v]) => `{
       name: "${META}_${k}",
@@ -233,7 +232,7 @@ class ArweaveClient {
     const fetchQuery = async (cursor) => {
       // fetch latest to cache
       // build query to lookup by name (and optionally version) and send request to arweave graphql server
-      const query = this.#queryBuilder(names, versions, userTags, options.verifiedOnly, cursor)
+      const query = this.#queryBuilder(names, versions, userTags, options.verifiedOnly, cursor, options.compatabilityMode)
       const req = await fetch('https://arweave.net/graphql', {
         method: 'POST',
         headers: {

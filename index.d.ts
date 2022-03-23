@@ -15,6 +15,7 @@ declare module "ar-wrapper" {
     maxRetries: number
     verifiedOnly: boolean
     maxResults: number
+    compatabilityMode: boolean
   }
 
   export interface BlockDocument {
