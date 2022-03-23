@@ -17,29 +17,19 @@ const DEFAULT_FETCH_OPTIONS = {
   maxResults: 25,
 }
 
-// A single managed document containing arbitrary content.
-// Should not be constructed manually, do this through the `ArweaveClient`
+
 class Document {
-  // Transaction ID of Document
   txID
-  // Parent Arweave Client
   client
-  // Whether the document has been posted to chain to be mined
   posted
-  // Timestamp of block being published
   timestamp
 
-  // Name of document. Assumed to be a unique identifier.
-  // To avoid collisions, you can namespace this by prefixing it with a string of your choice.
+
   name
-  // Arbitrary content. Can be JSON.
   content
-  // Document version. Uses an integer system, usually initialized to 0.
   version
-  // Object containing arbitrary user-defined metadata tags
   tags
 
-  // Initialize a new document. Not synced by default!
   constructor(parentClient, name, content, tags, version = 0) {
     this.client = parentClient
     this.txID = undefined
@@ -52,7 +42,6 @@ class Document {
     this.tags = tags
   }
 
-  // Return an object representation of data in this document that is stored on chain.
   data() {
     return {
       name: this.name,
@@ -62,8 +51,6 @@ class Document {
     }
   }
 
-  // Update document content. If you want to update any other fields, make a new
-  // document.
   async update(content) {
     this.content = content
     this.version += 1
@@ -71,7 +58,6 @@ class Document {
     return await this.client.updateDocument(this)
   }
 
-  // Helper function to bump timestamp of document
   bumpTimestamp(dateMs) {
     const time = new Date(dateMs * 1000)
     this.timestamp = time.toString()
@@ -83,22 +69,14 @@ const VERSION = "DOC_VERSION"
 const NAME = "DOC_NAME"
 const META = "DOC_META"
 
-// Thin wrapper client around Arweave for versioned document/data management.
-// Relies on an 'admin' wallet for fronting transaction + gas costs for users.
+
 class ArweaveClient {
   // Key object for associated admin wallet
   #key
-  // Public address for admin wallet
   adminAddr
-  // Underlying arweave-js client
   client
-  // Simple cache of Documents for optimistic block confirmations
   cache
 
-  // Construct a new client given the address of the admin account,
-  // keys to the wallet, and a set of options for connecting to an Arweave network.
-  // `cacheSize` can be set to 0 to disable caching (not recommended).
-  // Options are identical to the ones supported by the official `arweave-js` library.
   constructor(adminAddress, keyFile, cacheSize = 500, options = DEFAULT_ARWEAVE_OPTIONS) {
     if (keyFile === undefined) {
       console.log("WARN: keyFile is undefined. Client is now in READ-ONLY mode. If this isn't intentional, make sure you are passing in a key")
@@ -145,8 +123,6 @@ class ArweaveClient {
     return doc
   }
 
-  // Internal function to see if given document is cached.
-  // Optionally define desired version to match against.
   isCached(txId, desiredVersion) {
     const inCache = this.cache.has(txId)
     if (!inCache) {
@@ -158,14 +134,12 @@ class ArweaveClient {
     return cached.posted && versionMatch
   }
 
-  // Add a new document
   async addDocument(name, content, tags) {
     // create document + transaction
     const doc = new Document(this, name, content, tags)
     return this.#insert(doc)
   }
 
-  // Update existing document object and send to chain
   async updateDocument(document) {
     // check if cache has latest version of document
     if (this.isCached(document.txID, document.version)) {
@@ -176,7 +150,6 @@ class ArweaveClient {
     return await this.#insert(document)
   }
 
-  // Wait until block is confirmed as mined using exponential retry-backoff
   async pollForConfirmation(txId, maxRetries = 10) {
     if (!txId) {
       return Promise.reject("Document has not been posted! Use .update() first")
@@ -300,17 +273,14 @@ class ArweaveClient {
     return docs
   }
 
-  // Return a list of document objects by their tags
   async getDocumentsByTags(tags, options = DEFAULT_FETCH_OPTIONS) {
     return this.executeQuery([], [], tags, options)
   }
 
-  // Return a document object via lookup by name
   async getDocumentsByName(name, version, tags = [], options = DEFAULT_FETCH_OPTIONS) {
     return this.executeQuery([name], version === undefined ? [] : [version], tags, options)
   }
 
-  // Return a document object via lookup by transaction ID
   async getDocumentByTxId(txId, userOptions = DEFAULT_FETCH_OPTIONS) {
     const options = {
       ...DEFAULT_FETCH_OPTIONS,
