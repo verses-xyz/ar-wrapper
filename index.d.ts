@@ -16,6 +16,7 @@ declare module "ar-wrapper" {
     verifiedOnly: boolean
     maxResults: number
     compatabilityMode: boolean
+    skipHydration: boolean
   }
 
   export interface BlockDocument {
@@ -34,7 +35,27 @@ declare module "ar-wrapper" {
   }
 
   interface Serializable {
-    toString: (any) => string
+    toString: (any: any) => string
+  }
+
+  type DocumentType<SkipHydrationT = false> =
+    SkipHydrationT extends false ? Document : UnhydratedDocument
+
+  export class UnhydratedDocument {
+    txID: string
+    client: ArweaveClient
+    name: string
+    version: number
+    tags: Record<string, string>
+
+    constructor(parentClient: ArweaveClient, data: {
+      txID: string,
+      name: string,
+      version: number,
+      tags: Record<string, string>
+    })
+
+    getHydratedDocument(): Promise<Document>
   }
 
   // A single managed document containing arbitrary content.
@@ -70,7 +91,7 @@ declare module "ar-wrapper" {
     update(content: any): Promise<Document>
 
     // Helper function to bump timestamp of document
-    bumpTimestamp(dateMs: number)
+    bumpTimestamp(dateMs: number): void
   }
 
   // Thin wrapper client around Arweave for versioned document/data management.
@@ -95,23 +116,27 @@ declare module "ar-wrapper" {
 
     // Add a new document 
     addDocument(name: string, content: any, tags: Record<string, string>): Promise<Document>
-    
+
     // Update existing document object and send to chain
     updateDocument(document: Document): Promise<Document>
-  
+
     // Wait until block is confirmed as mined using exponential retry-backoff
     pollForConfirmation(txId: string, maxRetries?: number): Promise<BlockStatusI>
 
     // Returns list of matching documents to query
-    executeQuery(names: string[], versions: number[], userTags: Record<string, string>, userOptions?: Partial<FetchSettingsI>): Promise<Document[]>
+    executeQuery<O extends Partial<FetchSettingsI>>(names: string[], versions: number[], userTags: Record<string, string>, userOptions?: O):
+      Promise<DocumentType<O["skipHydration"]>[]>
 
     // Return a list of document objects via lookup by their name
-    getDocumentsByName(name: string, version?: number, tags?: Record<string, string>, options?: Partial<FetchSettingsI>): Promise<Document[]>
+    getDocumentsByName<O extends Partial<FetchSettingsI>>(name: string, version?: number, tags?: Record<string, string>, options?: O):
+      Promise<DocumentType<O["skipHydration"]>[]>
 
     // Return a list of document objects by their tags
-    getDocumentsByTags(tags: Record<string, string>, options?: Partial<FetchSettingsI>): Promise<Document[]>
-  
+    getDocumentsByTags<O extends Partial<FetchSettingsI>>(tags: Record<string, string>, options?: O):
+      Promise<DocumentType<O["skipHydration"]>[]>
+
     // Return a single document object via lookup by transaction ID
-    getDocumentByTxId(txId: string, userOptions?: Partial<FetchSettingsI>): Promise<Document>
+    getDocumentByTxId<O extends Partial<FetchSettingsI>>(txId: string, userOptions?: O):
+      Promise<DocumentType<O["skipHydration"]>[]>
   }
 }

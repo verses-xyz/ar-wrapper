@@ -10,7 +10,7 @@ async function main() {
   // Instantiate client
   const client = new ArweaveClient(address, keyfile)
 
-  // // create a new document
+  // create a new document
   const doc = await client.addDocument("Test Document", "Lorem Ipsum", {
     "hasTag": true
   })

@@ -16,6 +16,28 @@ const DEFAULT_FETCH_OPTIONS = {
   verifiedOnly: true,
   maxResults: 25,
   compatabilityMode: false,
+  skipHydration: false,
+}
+
+class UnhydratedDocument {
+  txID
+  client
+  name
+  version
+  tags
+
+  constructor(parentClient, data) {
+    this.client = parentClient
+    this.txID = data.txID
+
+    this.name = data.name
+    this.version = data.version
+    this.tags = data.tags
+  }
+
+  async getHydratedDocument() {
+    return this.client.getDocumentByTxId(this.txId)
+  }
 }
 
 class Document {
@@ -25,7 +47,6 @@ class Document {
   timestamp
 
   name
-  content
   version
   tags
 
@@ -256,20 +277,32 @@ class ArweaveClient {
     }
 
     // safe to get first item as we specify specific tags in the query building stage
-    const txIds = resultEdges.sort((a, b) => {
-      // we reverse sort edges if version is not defined to get latest version
-      const getVersion = (edge) => edge.node.tags.find(tag => tag.name === VERSION).value || 0
-      return getVersion(b) - getVersion(a)
-    }).map(e => e.node.id)
+    const getVersion = (edge) => edge.node.tags.find(tag => tag.name === VERSION).value || 0
+    const getName = (edge) => edge.node.tags.find(tag => tag.name === NAME).value || "Untitled Document"
+    const txs = resultEdges.sort((a, b) => getVersion(b) - getVersion(a))
 
-    // fetch document, update cache
-    const promises = txIds.map(txId => this.getDocumentByTxId(txId, options))
-    const docs = (await Promise.allSettled(promises))
-      .filter(p => p.status === "fulfilled")
-      .map(p => p.value)
-      .slice(0, userOptions.maxResults)
-    docs.forEach(doc => this.cache.set(doc.name, doc))
-    return docs
+    if (options.skipHydration) {
+      return txs.map(e => new UnhydratedDocument(this.client, {
+        txID: e.id,
+        name: getName(e),
+        version: getVersion(e),
+        tags: e.node.tags.reduce((accum, tag) => {
+          accum[tag.name] = tag.value
+          return accum
+        }, {})
+      }))
+    } else {
+      // hydrate document, update cache
+      const promises = txs
+        .map(e => e.node.id)
+        .map(txId => this.getDocumentByTxId(txId, options))
+      const docs = (await Promise.allSettled(promises))
+        .filter(p => p.status === "fulfilled")
+        .map(p => p.value)
+        .slice(0, userOptions.maxResults)
+      docs.forEach(doc => this.cache.set(doc.name, doc))
+      return docs
+    }
   }
 
   async getDocumentsByTags(tags, options = DEFAULT_FETCH_OPTIONS) {
@@ -340,5 +373,7 @@ class ArweaveClient {
 
 module.exports = {
   ArweaveClient,
-  Document
+  Document,
+  DEFAULT_ARWEAVE_OPTIONS,
+  DEFAULT_FETCH_OPTIONS,
 }
